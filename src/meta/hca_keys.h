@@ -1305,6 +1305,9 @@ static const hcakey_info hcakey_list[] = {
         // Jujutsu Kaisen: Cursed Clash (multi)
         {984703514306706654},    // DAA5EA10B547CDE
 
+        // THE iDOLM@STER Cinderella Girls: Viewing Revolution (PS4)
+        {28958194564123400},    // 0066E1531454CB08
+
 };
 
 #endif/*_HCA_KEYS_H_*/
