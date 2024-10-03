@@ -280,6 +280,9 @@ vgmstream_cli: version
 vgmstream123: version
 	$(MAKE) -C cli vgmstream123
 
+api_example: version
+	$(MAKE) -C cli api_example
+
 winamp: version
 	$(MAKE) -C winamp in_vgmstream
 
@@ -297,4 +300,4 @@ clean:
 	$(MAKE) -C xmplay clean
 	$(MAKE) -C ext_libs clean
 
-.PHONY: clean buildfullrelease buildrelease sourceball bin vgmstream-cli vgmstream_cli vgmstream123 winamp xmplay version
+.PHONY: clean buildfullrelease buildrelease sourceball bin vgmstream-cli vgmstream_cli vgmstream123 api_example winamp xmplay version

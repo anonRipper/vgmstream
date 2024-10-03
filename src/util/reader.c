@@ -1,3 +1,4 @@
+#include <string.h> // memcpy
 #include "reader_put.h"
 #include "reader_text.h"
 #include "reader_sf.h"
@@ -29,6 +30,30 @@ void put_u32be(uint8_t* buf, uint32_t v) {
     buf[1] = (uint8_t)((v >> 16) & 0xFF);
     buf[2] = (uint8_t)((v >>  8) & 0xFF);
     buf[3] = (uint8_t)((v >>  0) & 0xFF);
+}
+
+void put_s8(uint8_t* buf, int8_t v) {
+    put_u8(buf, v);
+}
+
+void put_s16le(uint8_t* buf, int16_t v) {
+    put_u16le(buf, v);
+}
+
+void put_s32le(uint8_t* buf, int32_t v) {
+    put_u32le(buf, v);
+}
+
+void put_s16be(uint8_t* buf, int16_t v) {
+    put_u16be(buf, v);
+}
+
+void put_s32be(uint8_t* buf, int32_t v) {
+    put_u32be(buf, v);
+}
+
+void put_data(uint8_t* buf, void* v, int v_size) {
+    memcpy   (buf, v, v_size);
 }
 
 /* **************************************************** */
@@ -95,27 +120,39 @@ size_t read_bom(STREAMFILE* sf) {
     return 0x00;
 }
 
-size_t read_string(char* buf, size_t buf_size, off_t offset, STREAMFILE* sf) {
-    size_t pos;
+size_t read_string_sz(char* buf, size_t buf_size, size_t string_size, off_t offset, STREAMFILE* sf) {
 
-    for (pos = 0; pos < buf_size; pos++) {
+    // read up to buf, or stop before if size is set; in either case will stop at 0x00
+    size_t max_size = buf_size;
+    if (string_size > 0 && string_size < max_size)
+        max_size = string_size + 1;
+
+    for (size_t pos = 0; pos < max_size; pos++) {
         uint8_t byte = read_u8(offset + pos, sf);
-        char c = (char)byte;
-        if (buf) buf[pos] = c;
-        if (c == '\0')
+        if (buf) buf[pos] = (char)byte;
+
+        // done
+        if (byte == '\0')
             return pos;
-        if (pos+1 == buf_size) { /* null at maxsize and don't validate (expected to be garbage) */
+
+        // null at maxsize and don't validate (expected to be garbage)
+        if (pos + 1 == max_size) {
             if (buf) buf[pos] = '\0';
-            return buf_size;
+            return max_size;
         }
-        /* UTF-8 only goes to 0x7F, but allow a bunch of Windows-1252 codes that some games use */
+
+        // UTF-8 only goes to 0x7F, but allow a bunch of Windows-1252 codes that some games use
         if (byte < 0x20 || byte > 0xF0)
-            goto fail;
+            break;
     }
 
-fail:
+    // error or wrong max_size
     if (buf) buf[0] = '\0';
     return 0;
+}
+
+size_t read_string(char* buf, size_t buf_size, off_t offset, STREAMFILE* sf) {
+    return read_string_sz(buf, buf_size, 0, offset, sf);
 }
 
 size_t read_string_utf16(char* buf, size_t buf_size, off_t offset, STREAMFILE* sf, int big_endian) {

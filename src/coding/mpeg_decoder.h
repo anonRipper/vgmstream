@@ -12,15 +12,16 @@
 /* represents a single MPEG stream */
 typedef struct {
     /* per stream as sometimes mpg123 must be fed in passes if data is big enough (ex. EALayer3 multichannel) */
-    uint8_t *buffer; /* raw data buffer */
+    uint8_t* buffer; /* raw data buffer */
     size_t buffer_size;
     size_t bytes_in_buffer;
-    int buffer_full; /* raw buffer has been filled */
-    int buffer_used; /* raw buffer has been fed to the decoder */
-    mpg123_handle *m; /* MPEG decoder */
+    bool buffer_full; /* raw buffer has been filled */
+    bool buffer_used; /* raw buffer has been fed to the decoder */
 
-    uint8_t *output_buffer; /* decoded samples from this stream (in bytes for mpg123) */
-    size_t output_buffer_size;
+    mpg123_handle* handle; /* MPEG decoder */
+
+    void* sbuf; /* decoded samples from this stream */
+    size_t sbuf_size; /* in bytes for mpg123 */
     size_t samples_filled; /* data in the buffer (in samples) */
     size_t samples_used; /* data extracted from the buffer */
 
@@ -33,12 +34,13 @@ typedef struct {
 
 struct mpeg_codec_data {
     /* regular/single MPEG internals */
-    uint8_t *buffer; /* raw data buffer */
+    uint8_t* buffer; /* raw data buffer */
     size_t buffer_size;
     size_t bytes_in_buffer;
-    int buffer_full; /* raw buffer has been filled */
-    int buffer_used; /* raw buffer has been fed to the decoder */
-    mpg123_handle *m; /* MPEG decoder */
+    bool buffer_full; /* raw buffer has been filled */
+    bool buffer_used; /* raw buffer has been fed to the decoder */
+
+    mpg123_handle* m; /* MPEG decoder */
     struct mpg123_frameinfo mi; /* start info, so it's available even when resetting */
 
     /* for internal use */
@@ -49,12 +51,12 @@ struct mpeg_codec_data {
     int sample_rate_per_frame;
 
     /* custom MPEG internals */
-    int custom; /* flag */
+    bool custom; /* flag */
     mpeg_custom_t type; /* mpeg subtype */
     mpeg_custom_config config; /* config depending on the mode */
 
     size_t default_buffer_size;
-    mpeg_custom_stream **streams; /* array of MPEG streams (ex. 2ch+2ch) */
+    mpeg_custom_stream* streams; /* array of MPEG streams (ex. 2ch+2ch) */
     size_t streams_size;
 
     size_t skip_samples; /* base encoder delay */

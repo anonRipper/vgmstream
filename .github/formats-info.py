@@ -13,7 +13,7 @@ import glob, os, re
 
 META_SRC = '../**/meta/*.c'
 FORMAT_SRC = '../**/formats.c'
-SORT_SRC = '../**/vgmstream.c'
+SORT_SRC = '../**/vgmstream_init.c'
 FORMAT_DOC = '../**/FORMATS.md'
 DUMP_DOC = 'formats-info.md'
 IS_SORT = True          #sorts metas lines based on LIST_SRC
@@ -52,6 +52,7 @@ FILES_SKIP = [
     'txth.c','txtp.c','genh.c', 
     'silence.c', 'mp4_faac.c', 'deblock_streamfile.c', 
     'ps_headerless.c', 'zwdsp.c',
+    'txtp_parser.c', 'txtp_process.c',
 ]
 
 EXT_RENAMES = {'...': '(any)', '': '(extensionless)'}
