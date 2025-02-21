@@ -36,6 +36,7 @@ typedef struct {
     // wav config
     bool write_lwav;
     bool write_original_wav;
+    bool write_float_wav;
 
     // print flags
     bool print_metaonly;
@@ -57,8 +58,8 @@ typedef struct {
 
 
     /* not quite config but eh */
-    int lwav_loop_start;
-    int lwav_loop_end;
+    int subsong_current_index;
+    int subsong_current_end;
 } cli_config_t;
 
 

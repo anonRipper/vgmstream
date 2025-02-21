@@ -545,8 +545,9 @@ willow.mpf: willow.mus,willow_o.mus
 bgm_2_streamfiles.awb: bgm_2.acb
 ```
 ```
-# hashes of SE1_Common_BGM + ext [Hyrule Warriors: Age of Calamity (Switch)]
-0x3a160928.srsa: 0x272c6efb.srsa
+# hashes of SE1_Common_BGM + SRSA/SRST [Hyrule Warriors: Age of Calamity (Switch)]
+# (more exactly "R_SRSA［SE1_Common_BGM］" and "R_SRST［SE1_Common_BGM］")
+0x3a160928.srsa: 0x272c6efb.srst
 ```
 ```
 # Snack World (Switch) names for .awb (single .acb for all .awb, order matters)
@@ -972,3 +973,31 @@ with `.txtp` as well.
 
 This may even happen with formats that do have loops in other games (for example
 relatively common with `.fsb` and mobile games, that may define loops in a .json file).
+
+
+## Modding game audio and encoding wav files to video game formats
+vgmstream cannot *encode* (convert *from* `.wav` *to* a game format), it only *decodes*
+(plays game audio). It also can't repack/mod game files (like `.wem`) into other game
+formats (like `.bnk`).
+
+One may think it's easy to do, since vgmstream reads game audio might as well write audio
+too, but *encoding* and *decoding* are very different.
+
+To *decode* vgmstream just reads a few existing values from the file's *header*,
+to setup and play the file's *body* data, decompressing the game's audio codec.
+
+To *encode* the program would need to make the *header* from scratch (having to include
+lots of values the game needs but aren't needed for vgmstream to play audio), and take
+PCM audio (.wav) and compress it (*very* different than decompressing) to make a *body*.
+
+In other words you need a dedicated tool that can *encode* to your particular format.
+Since *encoding* is lot harder than *decoding* it's not very common to find public tools,
+and may need to program one yourself.
+
+
+## Stream names
+Sometimes vgmstream reads and shows some *stream name*, some internal text that identifies the *stream* (song). Typically this is some identifier text that developers used for the song, but not always meaningful.
+
+*Stream names* don't necessarily work like *filenames*. For example the name may just be generic unused text that doesn't really apply to the sound. Or multiple subsongs may share the same *stream name*, such as `shot_sfx` may apply to 3 *streams*/subsongs, which often means game may use either of those randomly). Or even a single *stream*/subsong may have multiple associated names like `bgm_boss1; bgm_boss1_alt`.
+
+In some cases *vgmstream* may make a *stream name* based on parts or IDs for easier handling, like marking songs with `dummy` or `[pre]`. The letter are "prefetch" files that are just a tiny part of another file (to cache and hide loading times), and can be ignored.

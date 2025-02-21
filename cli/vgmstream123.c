@@ -72,11 +72,11 @@
 #define LITTLE_ENDIAN_OUTPUT 1 /* untested in BE */
 
 
-#define DEFAULT_PARAMS { 0, 0, -1, -1, 2.0, 10.0, 0.0,   0, 0, 0, 0 }
+#define DEFAULT_CONFIG { 0, 0, 0, -1, 2.0, 10.0, 0.0,   0, 0, 0, 0,  0, 0 }
 typedef struct {
     int subsong_index;
     int subsong_end;
-    int only_stereo;
+    int stereo_track;
 
     double min_time;
     double loop_count;
@@ -87,7 +87,11 @@ typedef struct {
     int force_loop;
     int really_force_loop;
     int play_forever;
-} song_settings_t;
+
+    /* not quite config but eh */
+    int subsong_current_index;
+    int subsong_current_end;
+} song_config_t;
 
 static const char *out_filename = NULL;
 static int driver_id;
@@ -95,7 +99,7 @@ static ao_device *device = NULL;
 static ao_option *device_options = NULL;
 static ao_sample_format current_sample_format;
 
-static sample_t *buffer = NULL;
+static sample_t* buffer = NULL;
 /* reportedly 1kb helps Raspberry Pi Zero play FFmpeg formats without stuttering
  * (presumably other low powered devices too), plus it's the default in other plugins */
 static int buffer_size_kb = 1;
@@ -106,7 +110,7 @@ static int verbose = 0;
 static volatile int interrupted = 0;
 static double interrupt_time = 0.0;
 
-static int play_file(const char *filename, song_settings_t *par);
+static int play_file(const char* filename, song_config_t* cfg);
 
 static void interrupt_handler(int signum) {
     interrupted = 1;
@@ -184,21 +188,18 @@ static int set_sample_format(int channels, int sample_rate) {
     return 0;
 }
 
-static void apply_config(VGMSTREAM* vgmstream, song_settings_t* cfg) {
-    vgmstream_cfg_t vcfg = {0};
+static void load_config(vgmstream_cfg_t* vcfg, song_config_t* cfg) {
 
-    vcfg.allow_play_forever = 1;
+    vcfg->allow_play_forever = true;
 
-    vcfg.play_forever = cfg->play_forever;
-    vcfg.fade_time = cfg->fade_time;
-    vcfg.loop_count = cfg->loop_count;
-    vcfg.fade_delay = cfg->fade_delay;
+    vcfg->play_forever = cfg->play_forever;
+    vcfg->fade_time = cfg->fade_time;
+    vcfg->loop_count = cfg->loop_count;
+    vcfg->fade_delay = cfg->fade_delay;
 
-    vcfg.ignore_loop  = cfg->ignore_loop;
-    vcfg.force_loop = cfg->force_loop;
-    vcfg.really_force_loop = cfg->really_force_loop;
-
-    vgmstream_apply_config(vgmstream, &vcfg);
+    vcfg->ignore_loop  = cfg->ignore_loop;
+    vcfg->force_loop = cfg->force_loop;
+    vcfg->really_force_loop = cfg->really_force_loop;
 }
 
 #ifndef WIN32
@@ -226,40 +227,74 @@ static int getkey() {
 }
 #endif
 
-static int play_vgmstream(const char* filename, song_settings_t* cfg) {
-    int ret = 0;
-    STREAMFILE* sf;
-    VGMSTREAM* vgmstream;
-    FILE* save_fps[4];
-    size_t buffer_size;
-    int32_t max_buffer_samples;
-    int i;
-    int output_channels, input_channels;
 
+static VGMSTREAM* open_vgmstream(const char* filename, song_config_t* cfg) {
 
-    sf = open_stdio_streamfile(filename);
+    STREAMFILE* sf = open_stdio_streamfile(filename);
     if (!sf) {
         fprintf(stderr, "%s: cannot open file\n", filename);
-        return -1;
+        return NULL;
     }
 
-    vgmstream_set_log_stdout(VGM_LOG_LEVEL_ALL);
-
-    sf->stream_index = cfg->subsong_index;
-    vgmstream = init_vgmstream_from_STREAMFILE(sf);
+    sf->stream_index = cfg->subsong_current_index;
+    VGMSTREAM* vgmstream = init_vgmstream_from_STREAMFILE(sf);
     close_streamfile(sf);
 
     if (!vgmstream) {
         fprintf(stderr, "%s: error opening stream\n", filename);
-        return -1;
+        return NULL;
     }
 
+    return vgmstream;
+}
+
+
+static int play_vgmstream(const char* filename, song_config_t* cfg) {
+    int ret = 0;
+    FILE* save_fps[4];
+    size_t buffer_size;
+    int32_t max_buffer_samples;
+
+
+    VGMSTREAM* vgmstream = open_vgmstream(filename, cfg);
+    if (!vgmstream)
+        return -1;
+
     /* force load total subsongs if signalled */
-    if (cfg->subsong_end == -1) {
-        cfg->subsong_end = vgmstream->num_streams;
+    if (cfg->subsong_current_end == -1) {
+        cfg->subsong_current_end = vgmstream->num_streams;
         close_vgmstream(vgmstream);
         return 0;
     }
+
+    /* Calculate how many loops are needed to achieve a minimum
+     * playback time. Note: This calculation is derived from the
+     * logic in get_vgmstream_play_samples().
+     */
+    if (vgmstream->loop_flag && cfg->loop_count < 0) {
+        double intro = (double)vgmstream->loop_start_sample / vgmstream->sample_rate;
+        double loop = (double)(vgmstream->loop_end_sample - vgmstream->loop_start_sample) / vgmstream->sample_rate;
+        double end = cfg->fade_time + cfg->fade_delay;
+        if (loop < 1.0) loop = 1.0;
+        cfg->loop_count = ((cfg->min_time - intro - end) / loop + 0.99);
+        if (cfg->loop_count < 1.0) cfg->loop_count = 1.0;
+    }
+
+    /* Config
+     */
+    vgmstream_cfg_t vcfg = {0};
+    load_config(&vcfg, cfg);
+
+    vgmstream_apply_config(vgmstream, &vcfg);
+    if (cfg->stereo_track > 0) {
+        vgmstream_mixing_stereo_only(vgmstream, cfg->stereo_track - 1);
+    }
+    int input_channels = vgmstream->channels;
+    int output_channels = vgmstream->channels;
+    vgmstream_mixing_enable(vgmstream, 0, &input_channels, &output_channels); /* query */
+
+    bool play_forever = vgmstream_get_play_forever(vgmstream);
+
 
     /* If the audio device hasn't been opened yet, then describe it
      */
@@ -288,7 +323,7 @@ static int play_vgmstream(const char* filename, song_settings_t* cfg) {
     /* Print metadata in verbose mode
      */
     if (verbose) {
-        char description[4096] = { '\0' };
+        char description[4096];
         describe_vgmstream(vgmstream, description, sizeof(description));
         puts(description);
         putchar('\n');
@@ -299,34 +334,9 @@ static int play_vgmstream(const char* filename, song_settings_t* cfg) {
      * so that play_compressed_file() doesn't break, due to POSIX
      * wackiness like https://bugs.debian.org/590920
      */
-    for (i = 0; i < 4; i++)
+    for (int i = 0; i < 4; i++) {
         save_fps[i] = fopen("/dev/null", "r");
-
-
-    /* Calculate how many loops are needed to achieve a minimum
-     * playback time. Note: This calculation is derived from the
-     * logic in get_vgmstream_play_samples().
-     */
-    if (vgmstream->loop_flag && cfg->loop_count < 0) {
-        double intro = (double)vgmstream->loop_start_sample / vgmstream->sample_rate;
-        double loop = (double)(vgmstream->loop_end_sample - vgmstream->loop_start_sample) / vgmstream->sample_rate;
-        double end = cfg->fade_time + cfg->fade_delay;
-        if (loop < 1.0) loop = 1.0;
-        cfg->loop_count = ((cfg->min_time - intro - end) / loop + 0.99);
-        if (cfg->loop_count < 1.0) cfg->loop_count = 1.0;
     }
-
-
-    /* Config
-     */
-    apply_config(vgmstream, cfg);
-
-    if (cfg->only_stereo >= 0) {
-        vgmstream_mixing_stereo_only(vgmstream, cfg->only_stereo);
-    }
-    input_channels = vgmstream->channels;
-    output_channels = vgmstream->channels;
-    vgmstream_mixing_enable(vgmstream, 0, &input_channels, &output_channels); /* query */
 
 
     /* Buffer size in bytes (after getting channels)
@@ -352,30 +362,22 @@ static int play_vgmstream(const char* filename, song_settings_t* cfg) {
     ret = set_sample_format(output_channels, vgmstream->sample_rate);
     if (ret) goto fail;
 
+    if (out_filename && play_forever) {
+        fprintf(stderr, "%s: cannot play forever and use output filename\n", filename);
+        ret = -1;
+        goto fail;
+    }
+
     /* Decode
      */
     {
-        double total;
-        int time_total_min;
-        double time_total_sec;
-        int play_forever = vgmstream_get_play_forever(vgmstream);
-        int32_t decode_pos_samples = 0;
-        int32_t length_samples = vgmstream_get_samples(vgmstream);
-        if (length_samples <= 0) goto fail;
-
-        if (out_filename && play_forever) {
-            fprintf(stderr, "%s: cannot play forever and use output filename\n", filename);
-            ret = -1;
-            goto fail;
-        }
-
-        total = (double)length_samples / vgmstream->sample_rate;
-        time_total_min = (int)total / 60;
-        time_total_sec = total - 60 * time_total_min;
-
+        int32_t play_position = 0;
+        int32_t play_samples = vgmstream_get_samples(vgmstream);
+        double time_total = (double)play_samples / vgmstream->sample_rate;
+        int time_total_min = (int)time_total / 60;
+        double time_total_sec = time_total - 60 * time_total_min;
 
         while (!interrupted) {
-            int to_do;
 #ifndef WIN32
             int key = getkey();
             if (key < 0) {
@@ -388,11 +390,11 @@ static int play_vgmstream(const char* filename, song_settings_t* cfg) {
             }
 #endif
 
-            if (decode_pos_samples + max_buffer_samples > length_samples && !play_forever)
-                to_do = length_samples - decode_pos_samples;
+            int to_do;
+            if (play_position + max_buffer_samples > play_samples && !play_forever)
+                to_do = play_samples - play_position;
             else
                 to_do = max_buffer_samples;
-
             if (to_do <= 0) {
                 break; /* EOF */
             }
@@ -404,8 +406,8 @@ static int play_vgmstream(const char* filename, song_settings_t* cfg) {
 #endif
 
             if (verbose && !out_filename) {
-                double played = (double)decode_pos_samples / vgmstream->sample_rate;
-                double remain = (double)(length_samples - decode_pos_samples) / vgmstream->sample_rate;
+                double played = (double)play_position / vgmstream->sample_rate;
+                double remain = (double)(play_samples - play_position) / vgmstream->sample_rate;
                 if (remain < 0)
                     remain = 0; /* possible if play forever is set */
 
@@ -431,22 +433,23 @@ static int play_vgmstream(const char* filename, song_settings_t* cfg) {
                 break;
             }
 
-            decode_pos_samples += to_do;
+            play_position += to_do;
         }
 
 
         if (verbose && !ret) {
             /* Clear time status line */
             putchar('\r');
-            for (i = 0; i < 64; i++)
+            for (int i = 0; i < 64; i++) {
                 putchar(' ');
+            }
             putchar('\r');
             fflush(stdout);
         }
 
-        if (out_filename && !ret)
-            printf("Wrote %02d:%05.2f of audio to %s\n\n",
-                time_total_min, time_total_sec, out_filename);
+        if (out_filename && !ret) {
+            printf("Wrote %02d:%05.2f of audio to %s\n\n", time_total_min, time_total_sec, out_filename);
+        }
 
         if (interrupted) {
             fputs("Playback terminated.\n\n", stdout);
@@ -456,27 +459,26 @@ static int play_vgmstream(const char* filename, song_settings_t* cfg) {
     }
 
 
-fail:
+fail: //also decode done
     close_vgmstream(vgmstream);
 
-    for (i = 0; i < 4; i++)
+    for (int i = 0; i < 4; i++) {
         if (save_fps[i]) {
             fclose(save_fps[i]);
         }
+    }
 
     return ret;
 }
 
-static int play_playlist(const char *filename, song_settings_t *default_par) {
+static int play_playlist(const char *filename, song_config_t* default_cfg) {
 #ifndef WIN32
     int ret = 0;
     FILE *f;
     char *line = NULL;
     size_t line_mem = 0;
     ssize_t line_len = 0;
-    song_settings_t par;
-
-    memcpy(&par, default_par, sizeof(par));
+    song_config_t cfg = *default_cfg;
 
     f = fopen(filename, "r");
     if (!f) {
@@ -514,13 +516,13 @@ static int play_playlist(const char *filename, song_settings_t *default_par) {
                 if (arg) arg++;
 
                 if (PARAM_MATCHES("FADEDELAY"))
-                    par.fade_delay = atof(arg);
+                    cfg.fade_delay = atof(arg);
                 else if (PARAM_MATCHES("FADETIME"))
-                    par.fade_time = atof(arg);
+                    cfg.fade_time = atof(arg);
                 else if (PARAM_MATCHES("LOOPCOUNT"))
-                    par.loop_count = atof(arg);
+                    cfg.loop_count = atof(arg);
                 else if (PARAM_MATCHES("STREAMINDEX"))
-                    par.subsong_index = atoi(arg);
+                    cfg.subsong_index = atoi(arg);
 
                 param = strtok(NULL, ",");
             }
@@ -531,11 +533,11 @@ static int play_playlist(const char *filename, song_settings_t *default_par) {
         if (line[0] == '\0' || line[0] == '#')
             continue;
 
-        ret = play_file(line, &par);
+        ret = play_file(line, &cfg);
         if (ret) break;
 
         /* Reset playback options to default */
-        memcpy(&par, default_par, sizeof(par));
+        memcpy(&cfg, default_cfg, sizeof(cfg));
     }
 
     free(line);
@@ -547,7 +549,7 @@ static int play_playlist(const char *filename, song_settings_t *default_par) {
 #endif
 }
 
-static int play_compressed_file(const char *filename, song_settings_t *par, const char *expand_cmd) {
+static int play_compressed_file(const char* filename, song_config_t* cfg, const char* expand_cmd) {
     int ret;
     char temp_dir[128] = "/tmp/vgmXXXXXX";
     const char *base_name;
@@ -617,7 +619,7 @@ static int play_compressed_file(const char *filename, song_settings_t *par, cons
             fprintf(stderr, "%s: error decompressing file\n", filename);
     }
     else
-        ret = play_file(temp_file, par);
+        ret = play_file(temp_file, cfg);
 
     remove(temp_file);
     remove(temp_dir);
@@ -631,33 +633,39 @@ fail:
 
 #define ENDS_IN(EXT) !strcasecmp(EXT, filename + len - sizeof(EXT) + 1)
 
-static int play_standard(const char* filename, song_settings_t* cfg) {
-    int ret, subsong;
+static int play_standard(const char* filename, song_config_t* cfg) {
 
     /* standard */
     if (cfg->subsong_end == 0) {
+        cfg->subsong_current_index = cfg->subsong_index;
+
         return play_vgmstream(filename, cfg);
     }
 
     /* N subsongs */
 
-    /* first call should force load max subsongs */
-    if (cfg->subsong_end == -1) {
-        ret = play_vgmstream(filename, cfg);
+    // set base value for current file (passed files may have different number of subsongs)
+    cfg->subsong_current_index = cfg->subsong_index;
+    cfg->subsong_current_end = cfg->subsong_end;
+
+    // first call should force load max subsongs (if file has no subsongs this will be set to 1)
+    if (cfg->subsong_current_end == -1) {
+        int ret = play_vgmstream(filename, cfg);
         if (ret) return ret;
     }
 
-    for (subsong = cfg->subsong_index; subsong < cfg->subsong_end + 1; subsong++) {
-        cfg->subsong_index = subsong; 
-
-        ret = play_vgmstream(filename, cfg);
+    // convert subsong range
+    while (cfg->subsong_current_index < cfg->subsong_current_end + 1) {
+        int ret = play_vgmstream(filename, cfg);
         if (ret) return ret;
+
+        cfg->subsong_current_index++;
     }
 
     return 0;
 }
 
-static int play_file(const char* filename, song_settings_t* cfg) {
+static int play_file(const char* filename, song_config_t* cfg) {
     size_t len = strlen(filename);
 
     if (ENDS_IN(".m3u") || ENDS_IN(".m3u8"))
@@ -692,8 +700,8 @@ static void add_driver_option(const char *key_value) {
 }
 
 
-static void print_usage(const char* progname, int is_help) {
-    song_settings_t default_par = DEFAULT_PARAMS;
+static void print_usage(const char* progname, bool is_help) {
+    song_config_t default_cfg = DEFAULT_CONFIG;
     const char* default_driver = "???";
 
     {
@@ -728,7 +736,9 @@ static void print_usage(const char* progname, int is_help) {
         "    -B N        Use an audio buffer of N kilobytes [%d]\n"
         "    -@ LSTFILE  Read playlist from LSTFILE\n"
         "\n"
+        #ifndef WIN32   //libao uses fopen(..., "w") instead of "wb" so any 0x0a (\n) becomes 0x0d0a (\r\n)...
         "    -o OUTFILE  Set output filename for a file driver specified with -D\n"
+        #endif
         "    -m          Print metadata and playback progress\n"
         "    -s N        Play subsong N, if the format supports multiple subsongs\n"
         "    -S N        Play up to end subsong N (set 0 for 'all')\n"
@@ -750,17 +760,17 @@ static void print_usage(const char* progname, int is_help) {
         "playlist referring to same. This program supports the \"EXT-X-VGMSTREAM\" tag\n"
         "in playlists, and files compressed with gzip/bzip2/xz.\n",
         buffer_size_kb,
-        default_par.loop_count,
-        default_par.fade_time,
-        default_par.fade_delay
+        default_cfg.loop_count,
+        default_cfg.fade_time,
+        default_cfg.fade_delay
     );
 }
 
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     int error = 0;
     int opt;
-    song_settings_t cfg;
+    song_config_t cfg = {0};
     int extension = 0;
 
     signal(SIGHUP,  interrupt_handler);
@@ -771,16 +781,18 @@ int main(int argc, char **argv) {
     driver_id = ao_default_driver_id();
     memset(&current_sample_format, 0, sizeof(current_sample_format));
 
+    vgmstream_set_log_stdout(VGM_LOG_LEVEL_ALL);
+
     if (argc == 1) {
         /* We were invoked with no arguments */
-        print_usage(argv[0], 0);
+        print_usage(argv[0], false);
         goto done;
     }
 
 again_opts:
     {
-        song_settings_t default_par = DEFAULT_PARAMS;
-        cfg = default_par;
+        song_config_t default_cfg = DEFAULT_CONFIG;
+        cfg = default_cfg;
     }
 
     while ((opt = getopt(argc, argv, "-D:f:l:M:s:2:B:d:o:P:@:hrmieEcS:")) != -1) {
@@ -819,13 +831,13 @@ again_opts:
                 break;
             case 'S':
                 cfg.subsong_end = atoi(optarg);
-                if (!cfg.subsong_end)
+                if (cfg.subsong_end == 0)
                     cfg.subsong_end = -1; /* signal up to end (otherwise 0 = not set) */
-                if (!cfg.subsong_index)
+                if (cfg.subsong_index == 0)
                     cfg.subsong_index = 1;
                 break;
             case '2':
-                cfg.only_stereo = atoi(optarg);
+                cfg.stereo_track = atoi(optarg) + 1;
                 break;
             case 'i':
                 cfg.ignore_loop = 1;
@@ -856,7 +868,7 @@ again_opts:
                 out_filename = optarg;
                 break;
             case 'h':
-                print_usage(argv[0], 1);
+                print_usage(argv[0], true);
                 goto done;
             case 'P':
                 add_driver_option(optarg);

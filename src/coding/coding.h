@@ -20,12 +20,12 @@ void g72x_init_state(struct g72x_state* state_ptr);
 
 /* ima_decoder */
 void decode_standard_ima(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do, int channel, int is_stereo, int is_high_first);
-void decode_nw_ima(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do);
+void decode_camelot_ima(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do);
 void decode_snds_ima(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do, int channel);
 void decode_otns_ima(VGMSTREAM* vgmstream, VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do, int channel);
 void decode_wv6_ima(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do);
 void decode_hv_ima(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do);
-void decode_ffta2_ima(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do);
+void decode_sqex_ima(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do);
 void decode_blitz_ima(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do);
 void decode_mtf_ima(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do, int channel, int is_stereo);
 
@@ -109,12 +109,13 @@ int32_t pcm8_bytes_to_samples(size_t bytes, int channels);
 void decode_psx(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do, int is_badflags, int config);
 void decode_psx_configurable(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do, int frame_size, int config);
 void decode_psx_pivotal(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do, int frame_size);
-int ps_find_loop_offsets(STREAMFILE* sf, off_t start_offset, size_t data_size, int channels, size_t interleave, int32_t* out_loop_start, int32_t* out_loop_end);
-int ps_find_loop_offsets_full(STREAMFILE* sf, off_t start_offset, size_t data_size, int channels, size_t interleave, int32_t* out_loop_start, int32_t* out_loop_end);
+bool ps_find_loop_offsets(STREAMFILE* sf, off_t start_offset, size_t data_size, int channels, size_t interleave, int32_t* out_loop_start, int32_t* out_loop_end);
+bool ps_find_loop_offsets_full(STREAMFILE* sf, off_t start_offset, size_t data_size, int channels, size_t interleave, int32_t* out_loop_start, int32_t* out_loop_end);
+bool ps_find_stream_info(STREAMFILE* sf, off_t start_offset, size_t data_size, int channels, size_t interleave, int32_t* p_loop_start, int32_t* p_loop_end, uint32_t* p_stream_size);
 size_t ps_find_padding(STREAMFILE* sf, off_t start_offset, size_t data_size, int channels, size_t interleave, int discard_empty);
 size_t ps_bytes_to_samples(size_t bytes, int channels);
 size_t ps_cfg_bytes_to_samples(size_t bytes, size_t frame_size, int channels);
-int ps_check_format(STREAMFILE* sf, off_t offset, size_t max);
+bool ps_check_format(STREAMFILE* sf, off_t offset, size_t max);
 
 
 /* psv_decoder */
@@ -217,8 +218,8 @@ void decode_mtaf(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing,
 void decode_mta2(VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do, int channel, int config);
 
 
-/* mc3_decoder */
-void decode_mc3(VGMSTREAM* vgmstream, VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do, int channel);
+/* mpc3_decoder */
+void decode_mpc3(VGMSTREAM* vgmstream, VGMSTREAMCHANNEL* stream, sample_t* outbuf, int channelspacing, int32_t first_sample, int32_t samples_to_do, int channel);
 
 
 /* fadpcm_decoder */
@@ -385,6 +386,16 @@ void decode_ice(ice_codec_data* data, sample_t* outbuf, int32_t samples_to_do);
 void reset_ice(ice_codec_data* data);
 void seek_ice(ice_codec_data* data, int32_t num_sample);
 void free_ice(ice_codec_data* data);
+
+
+/* ka1a_decoder */
+typedef struct ka1a_codec_data ka1a_codec_data;
+
+ka1a_codec_data* init_ka1a(int bitrate_mode, int channels_tracks);
+void free_ka1a(ka1a_codec_data* data);
+void reset_ka1a(ka1a_codec_data* data);
+bool decode_ka1a_frame(VGMSTREAM* vgmstream);
+void seek_ka1a(VGMSTREAM* v, int32_t num_sample);
 
 
 #ifdef VGM_USE_VORBIS

@@ -1,18 +1,15 @@
 #include <string.h>
 #include <inttypes.h>
 #include <stdio.h>
-
 #include "vgmstream_cli.h"
+#include "vjson.h"
 #include "../src/api.h"
 #include "../src/vgmstream.h"
-
-#include "vjson.h"
-
 
 static void clean_filename(char* dst, int clean_paths) {
     for (int i = 0; i < strlen(dst); i++) {
         char c = dst[i];
-        int is_badchar = (clean_paths && (c == '\\' || c == '/'))
+        bool is_badchar = (clean_paths && (c == '\\' || c == '/'))
             || c == '*' || c == '?' || c == ':' /*|| c == '|'*/ || c == '<' || c == '>';
         if (is_badchar)
             dst[i] = '_';
@@ -37,7 +34,7 @@ void replace_filename(char* dst, size_t dstsize, cli_config_t* cfg, VGMSTREAM* v
 
     /* init config */
     subsong = vgmstream->stream_index;
-    if (subsong > vgmstream->num_streams || subsong != cfg->subsong_index) {
+    if (subsong > vgmstream->num_streams || subsong != cfg->subsong_current_index) {
         subsong = 0; /* for games without subsongs / bad config */
     }
 
@@ -79,7 +76,8 @@ void replace_filename(char* dst, size_t dstsize, cli_config_t* cfg, VGMSTREAM* v
         }
         else {
             /* not recognized */
-            continue;
+            // TO-DO: should move buf or swap "?" with "_"? may happen with non-ascii on Windows; for now break to avoid infinite loops
+            break;
         }
 
         /* copy result to buf again, so it can be used as format in next replace
@@ -100,8 +98,8 @@ void replace_filename(char* dst, size_t dstsize, cli_config_t* cfg, VGMSTREAM* v
 
 void print_info(VGMSTREAM* vgmstream, cli_config_t* cfg) {
     int channels = vgmstream->channels;
-    int64_t num_samples = vgmstream->num_samples;
     bool loop_flag = vgmstream->loop_flag;
+    int64_t num_samples = vgmstream->num_samples;
     int64_t loop_start = vgmstream->loop_start_sample;
     int64_t loop_end = vgmstream->loop_start_sample;
 
@@ -141,7 +139,7 @@ void print_info(VGMSTREAM* vgmstream, cli_config_t* cfg) {
 
     if (!cfg->play_sdtout && !cfg->print_adxencd && !cfg->print_oggenc && !cfg->print_batchvar) {
         char description[1024];
-        describe_vgmstream(vgmstream, description, 1024);
+        describe_vgmstream(vgmstream, description, sizeof(description));
         printf("%s", description);
     }
 }
@@ -179,9 +177,9 @@ void print_title(VGMSTREAM* vgmstream, cli_config_t* cfg) {
     if (!cfg->print_title)
         return;
 
-    tcfg.force_title = 0;
-    tcfg.subsong_range = 0;
-    tcfg.remove_extension = 0;
+    tcfg.force_title = false;
+    tcfg.subsong_range = false;
+    tcfg.remove_extension = true;
 
     vgmstream_get_title(title, sizeof(title), cfg->infilename, vgmstream, &tcfg);
 
@@ -255,7 +253,7 @@ void print_json_info(VGMSTREAM* vgm, cli_config_t* cfg, const char* vgmstream_ve
         if (info.loop_info.end > info.loop_info.start) {
             vjson_obj_open(&j);
                 vjson_keyint(&j, "start", info.loop_info.start);
-                vjson_keyint(&j, "end", info.loop_info.start);
+                vjson_keyint(&j, "end", info.loop_info.end);
             vjson_obj_close(&j);
         }
         else {

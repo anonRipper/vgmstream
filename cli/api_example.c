@@ -1,5 +1,4 @@
 #include "../src/libvgmstream.h"
-#if LIBVGMSTREAM_ENABLE
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
@@ -50,18 +49,16 @@ static int api_example(const char* infile) {
         //.loop_count = 1.0,
         //.fade_time = 10.0,
         .ignore_loop = true,
-        .force_pcm16 = fill_test,
+        .force_sfmt = LIBVGMSTREAM_SFMT_PCM16,
     };
     libvgmstream_setup(lib, &cfg);
 
 
     // open target file
-    libvgmstream_options_t opt = {
-        .libsf = get_streamfile(infile)
-    };
-    err = libvgmstream_open_song(lib, &opt);
+    libstreamfile_t* sf = get_streamfile(infile);
+    err = libvgmstream_open_stream(lib, sf, 0);
     // external SF is not needed after _open
-    libstreamfile_close(opt.libsf); 
+    libstreamfile_close(sf); 
 
     if (err < 0) {
         printf("not a valid file\n");
@@ -101,7 +98,7 @@ static int api_example(const char* infile) {
 
     printf("- decoding: %i\n" , (int32_t)lib->format->play_samples);
 
-    fill_pcm16_samples = 512;
+    fill_pcm16_samples = 576; //non-aligned samples for testing output
     fill_pcm16_bytes = fill_pcm16_samples * sizeof(short) * lib->format->channels;
     fill_pcm16 = malloc(fill_pcm16_bytes);
     if (!fill_pcm16) goto fail;
@@ -117,8 +114,8 @@ static int api_example(const char* infile) {
             err = libvgmstream_fill(lib, fill_pcm16, fill_pcm16_samples);
             if (err < 0) goto fail;
 
-            buf = fill_pcm16;
-            buf_bytes = err * sizeof(short) * lib->format->channels;
+            buf = lib->decoder->buf;
+            buf_bytes = lib->decoder->buf_bytes;
         }
         else {
             err = libvgmstream_render(lib);
@@ -137,7 +134,7 @@ static int api_example(const char* infile) {
     printf("\n");
 
     // close current streamfile before opening new ones, optional
-    //libvgmstream_close_song(lib);
+    //libvgmstream_close_stream(lib);
 
     // process done
     libvgmstream_free(lib);
@@ -182,7 +179,7 @@ static void test_lib_extensions() {
     VGM_STEP();
 
     const char** exts;
-    size_t size = 0;
+    int size = 0;
 
     size = 0;
     exts = libvgmstream_get_extensions(&size);
@@ -384,10 +381,7 @@ static void test_lib_tags() {
 int main(int argc, char** argv) {
     printf("API v%08x test\n", libvgmstream_get_version());
 
-    libvgmstream_log_t cfg = {
-        .stdout_callback = true
-    };
-    libvgmstream_set_log(&cfg);
+    libvgmstream_set_log(0, NULL);
 
     test_lib_is_valid();
     test_lib_extensions();
@@ -403,4 +397,3 @@ int main(int argc, char** argv) {
 
     return 0;
 }
-#endif

@@ -161,7 +161,6 @@ fail:
 
 static int _init_vgmstream_ogg_vorbis_tests(STREAMFILE* sf, ogg_vorbis_io_config_data* cfg, ogg_vorbis_meta_info_t* ovmi) {
 
-
     /* standard  */
     if (is_id32be(0x00,sf, "OggS")) {
 
@@ -171,9 +170,12 @@ static int _init_vgmstream_ogg_vorbis_tests(STREAMFILE* sf, ogg_vorbis_io_config
          * .acm: Planescape Torment Enhanced Edition (PC)
          * .sod: Zone 4 (PC)
          * .msa: Metal Slug Attack (Mobile)
-         * .bin/lbin: Devil May Cry 3: Special Edition (PC) */
-        if (check_extensions(sf,"ogg,logg,adx,rof,acm,sod,msa,bin,lbin"))
-            return 1;
+         * .bin/lbin: Devil May Cry 3: Special Edition (PC)
+         * .oga: Aqua Panic! (PC), Heroes of Annihilated Empires (PC)-pre-demuxed movie audio 
+         * .ogs: Exodus from the Earth (PC)
+         * .ogv: Tenshi no Hane wo Fumanaide (PC) */
+        if (check_extensions(sf,"ogg,logg,adx,rof,acm,sod,msa,bin,lbin,oga,ogs,ogv"))
+            return true;
         /* ignore others to allow stuff like .sngw */
     }
 
@@ -186,7 +188,7 @@ static int _init_vgmstream_ogg_vorbis_tests(STREAMFILE* sf, ogg_vorbis_io_config
 
         cfg->start = 0x20;
 
-        /* .kvs: Atelier Sophie (PC)
+        /* .kvs: Atelier Sophie (PC), debug strings
          * .kovs: header id only? */
         if (!check_extensions(sf,"kvs,kovs"))
             goto fail;
@@ -266,7 +268,7 @@ static int _init_vgmstream_ogg_vorbis_tests(STREAMFILE* sf, ogg_vorbis_io_config
 
     /* encrypted [Adventure Field 4 (PC)] */
     if (read_u32be(0x00,sf) == 0x4F756F71) {
-        ovmi->decryption_callback = at4_ogg_decryption_callback; //TODO replace with generic descryption?
+        ovmi->decryption_callback = at4_ogg_decryption_callback; //TODO replace with generic decryption?
 
         if (!check_extensions(sf,"ogg,logg"))
             goto fail;
@@ -738,6 +740,11 @@ static VGMSTREAM* _init_vgmstream_ogg_vorbis_config(STREAMFILE* sf, off_t start,
                     loop_flag = 1;
                     loop_end_found = 1;
                 }
+            }
+            else if (strstr(comment,"L=") == comment) { /* Kamaitachi no Yoru 2 (PS2) */
+                //sscanf(strrchr(comment,'=')+1,"%d", &loop_start);
+                loop_start = atol(strrchr(comment,'=')+1);
+                loop_flag = 1;
             }
 
             /* Hatsune Miku Project DIVA games, though only 'Arcade Future Tone' has >4ch files
